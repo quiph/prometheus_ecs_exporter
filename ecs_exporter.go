@@ -83,6 +83,24 @@ var (
 			"cluster",
 			"agent_connected",
 			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
+		})
+	cpuRegisteredPerInstanceMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ecs",
+		Subsystem: "instance",
+		Name:      "cpu_registered",
+		Help:      "Amount of registered cpu for scheduling tasks.",
+	},
+		[]string{
+			"containerInstance",
+			"cluster",
+			"agent_connected",
+			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
 		})
 
 	memoryLeftPerInstanceMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -96,6 +114,24 @@ var (
 			"cluster",
 			"agent_connected",
 			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
+		})
+	memoryRegisteredPerInstanceMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ecs",
+		Subsystem: "instance",
+		Name:      "memory_registered",
+		Help:      "Amount of registered memory for scheduling tasks.",
+	},
+		[]string{
+			"containerInstance",
+			"cluster",
+			"agent_connected",
+			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
 		})
 
 	runningTasksPerInstanceMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -109,6 +145,9 @@ var (
 			"cluster",
 			"agent_connected",
 			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
 		})
 
 	pendingTasksPerInstanceMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -122,6 +161,9 @@ var (
 			"cluster",
 			"agent_connected",
 			"status",
+			"scalableResource",
+			"launchType",
+			"ami",
 		})
 
 	taskCpuMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -183,21 +225,44 @@ func setContainerInstanceMetrics(cluster *string, svc *ecs.ECS) {
 	}
 
 	for _, containerInstance := range resultContainerInstanceDescription.ContainerInstances {
+		ami := "DEFAULT"
+		launchType := "DEFAULT"
+		scalableResource := "DEFAULT"
+		for _, attributes := range containerInstance.Attributes {
+			if *attributes.Name == "ecs.ami-id" {
+				ami = *attributes.Value
+			} else if *attributes.Name == "launchType" {
+				launchType = *attributes.Value
+			} else if *attributes.Name == "scalable_resource" {
+				scalableResource = *attributes.Value
+			}
 
+		}
 		containerInstanceRelativeTemp := strings.Split(*containerInstance.ContainerInstanceArn, "/")
 		containerInstanceRelative := containerInstanceRelativeTemp[len(containerInstanceRelativeTemp)-1]
-		pendingTasksPerInstanceMetric.With(prometheus.Labels{"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*containerInstance.PendingTasksCount))
-		runningTasksPerInstanceMetric.With(prometheus.Labels{"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*containerInstance.RunningTasksCount))
+		pendingTasksPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*containerInstance.PendingTasksCount))
+		runningTasksPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*containerInstance.RunningTasksCount))
 		for _, remainingResources := range containerInstance.RemainingResources {
 			if *remainingResources.Name == "CPU" {
-				cpuLeftPerInstanceMetric.With(prometheus.Labels{"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*remainingResources.IntegerValue))
+				cpuLeftPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*remainingResources.IntegerValue))
 
 			} else if *remainingResources.Name == "MEMORY" {
-				memoryLeftPerInstanceMetric.With(prometheus.Labels{"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*remainingResources.IntegerValue))
+				memoryLeftPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*remainingResources.IntegerValue))
 
 			}
 
 		}
+		for _, registeredResources := range containerInstance.RegisteredResources {
+			if *registeredResources.Name == "CPU" {
+				cpuRegisteredPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*registeredResources.IntegerValue))
+
+			} else if *registeredResources.Name == "MEMORY" {
+				memoryRegisteredPerInstanceMetric.With(prometheus.Labels{"scalableResource":scalableResource,"launchType":launchType,"ami":ami,"containerInstance": containerInstanceRelative, "cluster": *cluster, "agent_connected": strconv.FormatBool(*containerInstance.AgentConnected), "status": *containerInstance.Status}).Set(float64(*registeredResources.IntegerValue))
+
+			}
+
+		}
+
 	}
 
 }
@@ -292,6 +357,8 @@ func pollMetrics(region string, scrapeInterval int) {
 		runningTasksPerInstanceMetric.Reset()
 		cpuLeftPerInstanceMetric.Reset()
 		memoryLeftPerInstanceMetric.Reset()
+		cpuRegisteredPerInstanceMetric.Reset()
+		memoryRegisteredPerInstanceMetric.Reset()
 		for _, clusterName := range resultClusterList.ClusterArns {
 			clusterNameFull := *clusterName
 			clusterNameRelativeSplit := strings.Split(clusterNameFull, "/")
@@ -332,7 +399,7 @@ func main() {
 		}
 	}
 	go pollMetrics(region, scrapeInterval)
-	prometheus.MustRegister(taskDefMetric, desiredCountMetric, runningCountMetric, failedCountMetric, memoryLeftPerInstanceMetric, cpuLeftPerInstanceMetric, runningTasksPerInstanceMetric, pendingTasksPerInstanceMetric, taskCpuMetric, taskMemoryMetric)
+	prometheus.MustRegister(taskDefMetric, desiredCountMetric, runningCountMetric, failedCountMetric, memoryLeftPerInstanceMetric, cpuLeftPerInstanceMetric, runningTasksPerInstanceMetric, pendingTasksPerInstanceMetric, taskCpuMetric, taskMemoryMetric,cpuRegisteredPerInstanceMetric,memoryRegisteredPerInstanceMetric)
 	handleFunc = promhttp.Handler()
 	http.HandleFunc("/metrics", handleWithLocking)
 	http.ListenAndServe(":2112", nil)
